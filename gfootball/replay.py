@@ -30,12 +30,14 @@ from absl import flags
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string('trace_file', None, 'Trace file to replay')
-flags.DEFINE_integer('fps', 10, 'How many frames per second to render')
-flags.mark_flag_as_required('trace_file')
+flags.DEFINE_string("trace_file", None, "Trace file to replay")
+flags.DEFINE_integer("fps", 10, "How many frames per second to render")
+flags.mark_flag_as_required("trace_file")
+
 
 def main(_):
-  script_helpers.ScriptHelpers().replay(FLAGS.trace_file, FLAGS.fps)
+    script_helpers.ScriptHelpers().replay(FLAGS.trace_file, FLAGS.fps)
 
-if __name__ == '__main__':
-  app.run(main)
+
+if __name__ == "__main__":
+    app.run(main)

@@ -63,6 +63,7 @@ class FootballEnvCore(object):
     self._config = config
     self._sticky_actions = football_action_set.get_sticky_actions(config)
     self._use_rendering_engine = False
+    self._dump_name = ''
     if _unused_engines:
       self._env = _unused_engines.pop()
     else:
@@ -262,12 +263,12 @@ class FootballEnvCore(object):
       game_fps = self._step_count / self._steps_time
       logging.info(
           'Episode reward: %.2f score: [%d, %d], steps: %d, '
-          'FPS: %.1f, gameFPS: %.1f', self._cumulative_reward,
+          'FPS: %.1f, gameFPS: %.1f, dump_name: %s', self._cumulative_reward,
           single_observation['score'][0], single_observation['score'][1],
-          self._step_count, fps, game_fps)
+          self._step_count, fps, game_fps, self._dump_name)
     if self._step_count == 1:
       # Start writing episode_done
-      self.write_dump('episode_done')
+      self._dump_name = self.write_dump('episode_done')
     return self._observation, reward, episode_done, info
 
   def _retrieve_observation(self):
