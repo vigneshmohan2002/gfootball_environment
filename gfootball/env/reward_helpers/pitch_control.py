@@ -1,379 +1,85 @@
-"""
-Module for calculating a Pitch Control surface using MetricaSports's tracking & event data.
-
-Pitch control (at a given location on the field) is the probability that a team will gain 
-possession if the ball is moved to that location on the field. 
-
-Functions
-----------
-calculate_pitch_control_at_target(): calculate the pitch control probability for the attacking and defending teams at a specified target position on the ball.
-
-generate_pitch_control_for_event(): this function evaluates pitch control surface over the entire field at the moment
-of the given event (determined by the index of the event passed as an input)
-
-Classes
----------
-The 'player' class collects and stores trajectory information for each player required by the pitch control calculations.
-
-
-"""
-
+import numpy
+import math
+import os
 import numpy as np
+import math
+import cv2
+
+distance_shot_threshold = 14
+field_size = numpy.array([106, 68])
+wpc = 1
+wepv = 0.3
+wxg = 1
+th_pass_d = 30  # meters
+th_angle = 15  # degrees
 
 
-def initialise_players(team, teamname, params, GKid):
-    """
-    initialise_players(team,teamname,params)
-
-    create a list of player objects that holds their positions and velocities from the tracking data dataframe
-
-    Parameters
-    -----------
-
-    team: row (i.e. instant) of either the home or away team tracking Dataframe
-    teamname: team name "Home" or "Away"
-    params: Dictionary of model parameters (default model parameters can be generated using default_model_params() )
-
-    Returns
-    -----------
-
-    team_players: list of player objects for the team at at given instant
-
-    """
-    # get player  ids
-    player_ids = np.unique([c.split("_")[1] for c in team.keys() if c[:4] == teamname])
-    # create list
-    team_players = []
-    for p in player_ids:
-        # create a player object for player_id 'p'
-        team_player = player(p, team, teamname, params, GKid)
-        if team_player.inframe:
-            team_players.append(team_player)
-    return team_players
+#######################
+# Utilities functions #
+######################
 
 
-def check_offsides(
-    attacking_players,
-    defending_players,
-    ball_position,
-    GK_numbers,
-    verbose=False,
-    tol=0.2,
+def to_normalized_space(p):
+    xn = (p[0] + 1) / 2
+    yn = (p[1] + 0.42) / 0.84
+    return xn, yn
+
+
+def to_normalized_space_for_players(players):
+    normalized_players = numpy.zeros_like(players)
+    normalized_players[:, 0] = (players[:, 0] + 1) / 2
+    normalized_players[:, 1] = (players[:, 1] + 0.42) / 0.84
+    return normalized_players
+
+
+# Consider changing this to a function that takes a list of players and returns only onside player, or can simply use a filter
+# Offside detection to avoid pass
+def offside(
+    controlled_player_pos_normalized,
+    player_pos_normalized,
+    players_pos_right_normalized,
 ):
-    """
-    check_offsides( attacking_players, defending_players, ball_position, GK_numbers, verbose=False, tol=0.2):
 
-    checks whetheer any of the attacking players are offside (allowing for a 'tol' margin of error). Offside players are removed from
-    the 'attacking_players' list and ignored in the pitch control calculation.
+    th = 1 / 105
+    reciever_x = player_pos_normalized[0]
+    passer_x = controlled_player_pos_normalized[0]
+    last_defender_x = numpy.max(
+        players_pos_right_normalized[1:, 0]
+    )  # Take the maximum x position of the defending team except the goalkeeper
 
-    Parameters
-    -----------
-        attacking_players: list of 'player' objects (see player class above) for the players on the attacking team (team in possession)
-        defending_players: list of 'player' objects (see player class above) for the players on the defending team
-        ball_position: Current position of the ball (start position for a pass). If set to NaN, function will assume that the ball is already at the target position.
-        GK_numbers: tuple containing the player id of the goalkeepers for the (home team, away team)
-        verbose: if True, print a message each time a player is found to be offside
-        tol: A tolerance parameter that allows a player to be very marginally offside (up to 'tol' m) without being flagged offside. Default: 0.2m
+    # if player is in own field i.e behind the halfway line thus offside won't apply
+    if reciever_x <= 0:
+        return False
 
-    Returrns
-    -----------
-        attacking_players: list of 'player' objects for the players on the attacking team with offside players removed
-    """
-    # find jersey number of defending goalkeeper (just to establish attack direction)
-    defending_GK_id = (
-        GK_numbers[1] if attacking_players[0].teamname == "Home" else GK_numbers[0]
-    )
-    # make sure defending goalkeeper is actually on the field!
-    assert defending_GK_id in [
-        p.id for p in defending_players
-    ], "Defending goalkeeper jersey number not found in defending players"
-    # get goalkeeper player object
-    defending_GK = [p for p in defending_players if p.id == defending_GK_id][0]
-    # use defending goalkeeper x position to figure out which half he is defending (-1: left goal, +1: right goal)
-    defending_half = np.sign(defending_GK.position[0])
-    # find the x-position of the second-deepest defeending player (including GK)
-    second_deepest_defender_x = sorted(
-        [defending_half * p.position[0] for p in defending_players], reverse=True
-    )[1]
-    # define offside line as being the maximum of second_deepest_defender_x, ball position and half-way line
-    offside_line = (
-        max(second_deepest_defender_x, defending_half * ball_position[0], 0.0) + tol
-    )
-    # any attacking players with x-position greater than the offside line are offside
-    if verbose:
-        for p in attacking_players:
-            if p.position[0] * defending_half > offside_line:
-                print("player %s in %s team is offside" % (p.id, p.playername))
-    attacking_players = [
-        p for p in attacking_players if p.position[0] * defending_half <= offside_line
-    ]
-    return attacking_players
+    # If last defender is between the [asser and reciever, then offside
+    if reciever_x + th > last_defender_x and passer_x < last_defender_x:
+        return True
+
+    return False
 
 
-class player(object):
-    """
-    player() class
-
-    Class defining a player object that stores position, velocity, time-to-intercept and pitch control contributions for a player
-
-    __init__ Parameters
-    -----------
-    pid: id (jersey number) of player
-    team: row of tracking data for team
-    teamname: team name "Home" or "Away"
-    params: Dictionary of model parameters (default model parameters can be generated using default_model_params() )
-
-
-    methods include:
-    -----------
-    simple_time_to_intercept(r_final): time take for player to get to target position (r_final) given current position
-    probability_intercept_ball(T): probability player will have controlled ball at time T given their expected time_to_intercept
-
-    """
-
-    # player object holds position, velocity, time-to-intercept and pitch control contributions for each player
-    def __init__(self, pid, team, teamname, params, GKid):
-        self.id = pid
-        self.is_gk = self.id == GKid
-        self.teamname = teamname
-        self.playername = "%s_%s_" % (teamname, pid)
-        self.vmax = params[
-            "max_player_speed"
-        ]  # player max speed in m/s. Could be individualised
-        self.reaction_time = params[
-            "reaction_time"
-        ]  # player reaction time in 's'. Could be individualised
-        self.tti_sigma = params[
-            "tti_sigma"
-        ]  # standard deviation of sigmoid function (see Eq 4 in Spearman, 2018)
-        self.lambda_att = params[
-            "lambda_att"
-        ]  # standard deviation of sigmoid function (see Eq 4 in Spearman, 2018)
-        self.lambda_def = (
-            params["lambda_gk"] if self.is_gk else params["lambda_def"]
-        )  # factor of 3 ensures that anything near the GK is likely to be claimed by the GK
-        self.get_position(team)
-        self.get_velocity(team)
-        self.PPCF = 0.0  # initialise this for later
-
-    def get_position(self, team):
-        self.position = np.array(
-            [team[self.playername + "x"], team[self.playername + "y"]]
-        )
-        self.inframe = not np.any(np.isnan(self.position))
-
-    def get_velocity(self, team):
-        self.velocity = np.array(
-            [team[self.playername + "vx"], team[self.playername + "vy"]]
-        )
-        if np.any(np.isnan(self.velocity)):
-            self.velocity = np.array([0.0, 0.0])
-
-    def simple_time_to_intercept(self, r_final):
-        self.PPCF = 0.0  # initialise this for later
-        # Time to intercept assumes that the player continues moving at current velocity for 'reaction_time' seconds
-        # and then runs at full speed to the target position.
-        r_reaction = self.position + self.velocity * self.reaction_time
-        self.time_to_intercept = (
-            self.reaction_time + np.linalg.norm(r_final - r_reaction) / self.vmax
-        )
-        return self.time_to_intercept
-
-    def probability_intercept_ball(self, T):
-        # probability of a player arriving at target location at time 'T' given their expected time_to_intercept (time of arrival), as described in Spearman 2018
-        f = 1 / (
-            1.0
-            + np.exp(
-                -np.pi / np.sqrt(3.0) / self.tti_sigma * (T - self.time_to_intercept)
-            )
-        )
-        return f
-
-
-""" Generate pitch control map """
-
-
-def default_model_params(time_to_control_veto=3):
-    """
-    default_model_params()
-
-    Returns the default parameters that define and evaluate the model. See Spearman 2018 for more details.
-
-    Parameters
-    -----------
-    time_to_control_veto: If the probability that another team or player can get to the ball and control it is less than 10^-time_to_control_veto, ignore that player.
-
-
-    Returns
-    -----------
-
-    params: dictionary of parameters required to determine and calculate the model
-
-    """
-    # key parameters for the model, as described in Spearman 2018
-    params = {}
-    # model parameters
-    params["max_player_accel"] = (
-        7.0  # maximum player acceleration m/s/s, not used in this implementation
-    )
-    params["max_player_speed"] = 5.0  # maximum player speed m/s
-    params["reaction_time"] = (
-        0.7  # seconds, time taken for player to react and change trajectory. Roughly determined as vmax/amax
-    )
-    params["tti_sigma"] = (
-        0.45  # Standard deviation of sigmoid function in Spearman 2018 ('s') that determines uncertainty in player arrival time
-    )
-    params["kappa_def"] = (
-        1.0  # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that home & away players have same ball control probability
-    )
-    params["lambda_att"] = 4.3  # ball control parameter for attacking team
-    params["lambda_def"] = (
-        4.3 * params["kappa_def"]
-    )  # ball control parameter for defending team
-    params["lambda_gk"] = (
-        params["lambda_def"] * 3.0
-    )  # make goal keepers must quicker to control ball (because they can catch it)
-    params["average_ball_speed"] = 15.0  # average ball travel speed in m/s
-    # numerical parameters for model evaluation
-    params["int_dt"] = 0.04  # integration timestep (dt)
-    params["max_int_time"] = 10  # upper limit on integral time
-    params["model_converge_tol"] = (
-        0.01  # assume convergence when PPCF>0.99 at a given location.
-    )
-    # The following are 'short-cut' parameters. We do not need to calculated PPCF explicitly when a player has a sufficient head start.
-    # A sufficient head start is when the a player arrives at the target location at least 'time_to_control' seconds before the next player
-    params["time_to_control_att"] = (
-        time_to_control_veto
-        * np.log(10)
-        * (np.sqrt(3) * params["tti_sigma"] / np.pi + 1 / params["lambda_att"])
-    )
-    params["time_to_control_def"] = (
-        time_to_control_veto
-        * np.log(10)
-        * (np.sqrt(3) * params["tti_sigma"] / np.pi + 1 / params["lambda_def"])
-    )
-    return params
-
-
-def generate_pitch_control_for_event(
-    event_id,
-    events,
-    tracking_home,
-    tracking_away,
-    params,
-    GK_numbers,
-    field_dimen=(
-        106.0,
-        68.0,
-    ),
-    n_grid_cells_x=50,
-    offsides=True,
-):
-    """generate_pitch_control_for_event
-
-    Evaluates pitch control surface over the entire field at the moment of the given event (determined by the index of the event passed as an input)
-
-    Parameters
-    -----------
-        event_id: Index (not row) of the event that describes the instant at which the pitch control surface should be calculated
-        events: Dataframe containing the event data
-        tracking_home: tracking DataFrame for the Home team
-        tracking_away: tracking DataFrame for the Away team
-        params: Dictionary of model parameters (default model parameters can be generated using default_model_params() )
-        GK_numbers: tuple containing the player id of the goalkeepers for the (home team, away team)
-        field_dimen: tuple containing the length and width of the pitch in meters. Default is (106,68)
-        n_grid_cells_x: Number of pixels in the grid (in the x-direction) that covers the surface. Default is 50.
-                        n_grid_cells_y will be calculated based on n_grid_cells_x and the field dimensions
-        offsides: If True, find and remove offside atacking players from the calculation. Default is True.
-
-    UPDATE (tutorial 4): Note new input arguments ('GK_numbers' and 'offsides')
-
-    Returrns
-    -----------
-        PPCFa: Pitch control surface (dimen (n_grid_cells_x,n_grid_cells_y) ) containing pitch control probability for the attcking team.
-               Surface for the defending team is just 1-PPCFa.
-        xgrid: Positions of the pixels in the x-direction (field length)
-        ygrid: Positions of the pixels in the y-direction (field width)
-
-    """
-    # get the details of the event (frame, team in possession, ball_start_position)
-    pass_frame = events.loc[event_id]["Start Frame"]
-    pass_team = events.loc[event_id].Team
-    ball_start_pos = np.array(
-        [events.loc[event_id]["Start X"], events.loc[event_id]["Start Y"]]
-    )
-    # break the pitch down into a grid
-    n_grid_cells_y = int(n_grid_cells_x * field_dimen[1] / field_dimen[0])
-    dx = field_dimen[0] / n_grid_cells_x
-    dy = field_dimen[1] / n_grid_cells_y
-    xgrid = np.arange(n_grid_cells_x) * dx - field_dimen[0] / 2.0 + dx / 2.0
-    ygrid = np.arange(n_grid_cells_y) * dy - field_dimen[1] / 2.0 + dy / 2.0
-    # initialise pitch control grids for attacking and defending teams
-    PPCFa = np.zeros(shape=(len(ygrid), len(xgrid)))
-    PPCFd = np.zeros(shape=(len(ygrid), len(xgrid)))
-    # initialise player positions and velocities for pitch control calc (so that we're not repeating this at each grid cell position)
-    if pass_team == "Home":
-        attacking_players = initialise_players(
-            tracking_home.loc[pass_frame], "Home", params, GK_numbers[0]
-        )
-        defending_players = initialise_players(
-            tracking_away.loc[pass_frame], "Away", params, GK_numbers[1]
-        )
-    elif pass_team == "Away":
-        defending_players = initialise_players(
-            tracking_home.loc[pass_frame], "Home", params, GK_numbers[0]
-        )
-        attacking_players = initialise_players(
-            tracking_away.loc[pass_frame], "Away", params, GK_numbers[1]
-        )
-    else:
-        assert False, "Team in possession must be either home or away"
-
-    # find any attacking players that are offside and remove them from the pitch control calculation
-    if offsides:
-        attacking_players = check_offsides(
-            attacking_players, defending_players, ball_start_pos, GK_numbers
-        )
-    # calculate pitch pitch control model at each location on the pitch
-    for i in range(len(ygrid)):
-        for j in range(len(xgrid)):
-            target_position = np.array([xgrid[j], ygrid[i]])
-            PPCFa[i, j], PPCFd[i, j] = calculate_pitch_control_at_target(
-                target_position,
-                attacking_players,
-                defending_players,
-                ball_start_pos,
-                params,
-            )
-    # check probabilitiy sums within convergence
-    checksum = np.sum(PPCFa + PPCFd) / float(n_grid_cells_y * n_grid_cells_x)
-    assert 1 - checksum < params["model_converge_tol"], "Checksum failed: %1.3f" % (
-        1 - checksum
-    )
-    return PPCFa, xgrid, ygrid
+#######################
+# Pitch Control Model #
+######################
 
 
 def calculate_pitch_control_at_target(
-    target_position, attacking_players, defending_players, ball_start_pos, params
+    target_position,
+    attacking_players,
+    defending_players,
+    ball_start_pos,
+    params,
+    field_size=[106, 68],
 ):
-    """calculate_pitch_control_at_target
 
-    Calculates the pitch control probability for the attacking and defending teams at a specified target position on the ball.
+    if (
+        target_position[0] < -field_size[0] / 2
+        or target_position[0] > field_size[0] / 2
+        or target_position[1] < -field_size[1] / 2
+        or target_position[1] > field_size[1] / 2
+    ):
+        return 0.0, 1.0
 
-    Parameters
-    -----------
-        target_position: size 2 numpy array containing the (x,y) position of the position on the field to evaluate pitch control
-        attacking_players: list of 'player' objects (see player class above) for the players on the attacking team (team in possession)
-        defending_players: list of 'player' objects (see player class above) for the players on the defending team
-        ball_start_pos: Current position of the ball (start position for a pass). If set to NaN, function will assume that the ball is already at the target position.
-        params: Dictionary of model parameters (default model parameters can be generated using default_model_params() )
-
-    Returrns
-    -----------
-        PPCFatt: Pitch control probability for the attacking team
-        PPCFdef: Pitch control probability for the defending team ( 1-PPCFatt-PPCFdef <  params['model_converge_tol'] )
-
-    """
     # calculate ball travel time from start position to end position.
     if ball_start_pos is None or any(
         np.isnan(ball_start_pos)
@@ -474,3 +180,185 @@ def calculate_pitch_control_at_target(
         if i >= dT_array.size:
             print("Integration failed to converge: %1.3f" % (ptot))
         return PPCFatt[i - 1], PPCFdef[i - 1]
+
+
+def default_model_params(time_to_control_veto=3):
+
+    # key parameters for the model, as described in Spearman 2018
+    params = {}
+    # model parameters
+    params["max_player_speed"] = 5.0  # maximum player speed m/s
+    params["reaction_time"] = (
+        0.7  # seconds, time taken for player to react and change trajectory. Roughly determined as vmax/amax
+    )
+    params["tti_sigma"] = (
+        0.45  # Standard deviation of sigmoid function in Spearman 2018 ('s') that determines uncertainty in player arrival time
+    )
+    params["kappa_def"] = (
+        1.0  # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that home & away players have same ball control probability
+    )
+    params["lambda_att"] = 4.3  # ball control parameter for attacking team
+    params["lambda_def"] = (
+        4.3 * params["kappa_def"]
+    )  # ball control parameter for defending team
+    params["lambda_gk"] = (
+        params["lambda_def"] * 3.0
+    )  # make goal keepers must quicker to control ball (because they can catch it)
+    params["average_ball_speed"] = 15.0  # average ball travel speed in m/s
+    # numerical parameters for model evaluation
+    params["int_dt"] = 0.04  # integration timestep (dt)
+    params["max_int_time"] = 10  # upper limit on integral time
+    params["model_converge_tol"] = (
+        0.01  # assume convergence when PPCF>0.99 at a given location.
+    )
+    # The following are 'short-cut' parameters. We do not need to calculated PPCF explicitly when a player has a sufficient head start.
+    # A sufficient head start is when the a player arrives at the target location at least 'time_to_control' seconds before the next player
+    params["time_to_control_att"] = (
+        time_to_control_veto
+        * np.log(10)
+        * (np.sqrt(3) * params["tti_sigma"] / np.pi + 1 / params["lambda_att"])
+    )
+    params["time_to_control_def"] = (
+        time_to_control_veto
+        * np.log(10)
+        * (np.sqrt(3) * params["tti_sigma"] / np.pi + 1 / params["lambda_def"])
+    )
+    return params
+
+
+class Player(object):
+    # player object holds position, velocity, time-to-intercept and pitch control contributions for each player
+    def __init__(self, pid, pos, teamname, params, GKid):
+        self.id = pid
+        self.is_gk = self.id == GKid
+        self.teamname = teamname
+        self.playername = "%s_%s_" % (teamname, pid)
+        self.vmax = params[
+            "max_player_speed"
+        ]  # player max speed in m/s. Could be individualised
+        self.reaction_time = params[
+            "reaction_time"
+        ]  # player reaction time in 's'. Could be individualised
+        self.tti_sigma = params[
+            "tti_sigma"
+        ]  # standard deviation of sigmoid function (see Eq 4 in Spearman, 2018)
+        self.lambda_att = params[
+            "lambda_att"
+        ]  # standard deviation of sigmoid function (see Eq 4 in Spearman, 2018)
+        self.lambda_def = (
+            params["lambda_gk"] if self.is_gk else params["lambda_def"]
+        )  # factor of 3 ensures that anything near the GK is likely to be claimed by the GK
+        self.position = pos
+        self.velocity = numpy.array([0, 0])
+        self.PPCF = 0.0  # initialise this for later
+
+    def simple_time_to_intercept(self, r_final):
+        self.PPCF = 0.0  # initialise this for later
+        # Time to intercept assumes that the player continues moving at current velocity for 'reaction_time' seconds
+        # and then runs at full speed to the target position.
+        r_reaction = self.position + self.velocity * self.reaction_time
+        self.time_to_intercept = (
+            self.reaction_time + np.linalg.norm(r_final - r_reaction) / self.vmax
+        )
+        return self.time_to_intercept
+
+    def probability_intercept_ball(self, T):
+        # probability of a player arriving at target location at time 'T' given their expected time_to_intercept (time of arrival), as described in Spearman 2018
+        f = 1 / (
+            1.0
+            + np.exp(
+                -np.pi / np.sqrt(3.0) / self.tti_sigma * (T - self.time_to_intercept)
+            )
+        )
+        return f
+
+
+########
+# Agent#
+########
+def get_action(
+    players_pos_left,
+    players_dirs_left,
+    ball_pos,
+    ball_dir,
+    controlled_player_id,
+    controlled_team_id,
+    player_pos_right,
+    players_dirs_right,
+    is_dribbling,
+    is_sprinting,
+    previous_action,
+):
+
+    global distance_shot_threshold
+
+    steps = 5
+    if controlled_team_id == 1:
+        players_pos_left = players_pos_left + steps * players_dirs_left
+        player_pos_right = player_pos_right + steps * players_dirs_right
+        ball_pos = ball_pos + steps * ball_dir
+    else:
+        ball_pos = ball_pos + steps * ball_dir
+
+    # Normalize players and balls position and directions
+    players_pos_left_normalized = to_normalized_space_for_players(players_pos_left)
+    players_pos_right_normalized = to_normalized_space_for_players(player_pos_right)
+    ball_pos_normalized = to_normalized_space_for_players(ball_pos.reshape((-1, 2)))
+
+    players_pos_left_normalized[:, 0] -= 0.5
+    players_pos_left_normalized[:, 1] = 1 - players_pos_left_normalized[:, 1] - 0.5
+    players_pos_right_normalized[:, 0] -= 0.5
+    players_pos_right_normalized[:, 1] = 1 - players_pos_right_normalized[:, 1] - 0.5
+    ball_pos_normalized[:, 0] -= 0.5
+    ball_pos_normalized[:, 1] = 1 - ball_pos_normalized[:, 1] - 0.5
+
+    players_dirs_left[:, 1] = -players_dirs_left[:, 1]
+    players_dirs_left_normalized = players_dirs_left / numpy.linalg.norm(
+        players_dirs_left, axis=1
+    ).reshape((-1, 1))
+
+    controlled_player_pos = players_pos_left[controlled_player_id]
+    controlled_player_pos_normalized = players_pos_left_normalized[controlled_player_id]
+    controlled_player_dir_normalized = players_dirs_left_normalized[
+        controlled_player_id
+    ]
+
+
+@human_readable_agent
+def agent(obs):
+
+    global previous_pass_step
+    global previous_action
+
+    # Getting data
+    players_pos_left = numpy.array(obs["left_team"]).reshape((-1, 2))
+    players_pos_right = numpy.array(obs["right_team"]).reshape((-1, 2))
+    players_dirs_left = numpy.array(obs["left_team_direction"]).reshape((-1, 2))
+    players_dirs_right = numpy.array(obs["right_team_direction"]).reshape((-1, 2))
+    ball_pos = numpy.array([obs["ball"][0], obs["ball"][1]])
+    ball_dir = numpy.array([obs["ball_direction"][0], obs["ball_direction"][1]])
+
+    controlled_player_id = obs["active"]
+    controlled_team_id = obs["ball_owned_team"] + 1
+    steps_left = obs["steps_left"]
+    is_dribbling = False
+    is_sprinting = False
+
+    ########
+    # Agent#
+    ########
+    action = get_action(
+        players_pos_left,
+        players_dirs_left,
+        ball_pos,
+        ball_dir,
+        controlled_player_id,
+        controlled_team_id,
+        players_pos_right,
+        players_dirs_right,
+        is_dribbling,
+        is_sprinting,
+        previous_action,
+    )
+
+    previous_action = action
