@@ -487,46 +487,87 @@ class MultiAgentToSingleAgent(gym.Wrapper):
 
 
 class CustomRewardWrapper(gym.Wrapper):
-    """A wrapper that adds a custom reward utilizing advanced football metrics 
-    Pitch Control, Expected Goals, Expected Possession Value and Expected Threat 
+    """A wrapper that adds a custom reward utilizing advanced football metrics
+    Pitch Control, Expected Goals, Expected Possession Value and Expected Threat
     to the environment."""
 
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
+        self.pass_played_frame = None
 
-    def step(self, action):
-      observation, reward, done, info = self.env.step(action)
-      self.obs.append(observation)
-      return self._get_observation(), reward, done, info
-
-    def expected_threat_pass(self, pass_played_info, pass_received_info):
+    def _expected_threat_pass(self, pass_played_location, pass_received_location):
         """
         Calculate the expected threat of a pass.
         Note: xT is a metric that can also evaluate the quality of a dribbe/carry play.
         """
         return None
-    
-    def expected_possession_value(self, ball_location):
+
+    def _expected_possession_value(self, ball_location):
         """
         Calculate the expected possession value solely based on the location of the ball.
         """
         return None
-    
-    def expected_goals(self, shot_info):
+
+    def _expected_goals(self, shot_info):
         """
         Calculate the xG value of a shot.
         """
         return None
-    
-    def pitch_control(self, observation):
+
+    def _pitch_control(self, observation):
         """
         Calculate the pitch control of the team.
         """
         return None
-    
-    def _reward_fn(self, reward):
-        """This will be an aggregation of the stats calculated by the above functions.""" 
+
+    def _reward_fn(self, reward, xT, EPV, xG, pitch_control):
+        """This will be an aggregation of the stats calculated by the above functions."""
         return None
 
-    def reward(self, reward):
-        return self._reward_fn(reward)
+    def step(self, action):
+        observation, reward, done, info = self.env.step(action)
+        # If action is a pass save the frame
+        if (
+            action
+            in [
+                football_action_set.action_short_pass,
+                football_action_set.action_long_pass,
+                football_action_set.action_high_pass,
+            ]
+            and observation["ball_owned_team"] == 1
+        ):
+            self.pass_played_frame = (
+                observation,
+                observation["ball_owned_player"],
+                observation["ball_owned_team"],
+            )
+
+        # Detect when the pass is received
+        observation_bop = observation["ball_owned_player"]
+        # If the ball is owned by a different player than the one who played the pass, then the pass was received
+        if self.pass_played_frame is not None and observation_bop not in [
+            -1,
+            self.pass_played_frame[1],
+        ]:
+            # We only need the x and y coordinates of the ball
+            pass_played_location = (
+                self.pass_played_frame["ball"][0],
+                self.pass_played_frame["ball"][1],
+            )
+            pass_received_location = (observation["ball"][0], observation["ball"][1])
+            xT = self._xpected_threat_pass(pass_played_location, pass_received_location)
+            self.pass_played_frame = None
+
+        # If action is a shot calculate the xG
+        if action == football_action_set.action_shot:
+            shot_frame = (observation, observation["ball_owned_player"])
+            xG = self._expected_goals(shot_frame)
+
+        epv = self._expected_possession_value(
+            observation["ball"][0], observation["ball"][1]
+        )
+
+        pitch_control = self._pitch_control(observation)
+
+        reward = self._reward_fn(reward)
+        return self._get_observation(), reward, done, info

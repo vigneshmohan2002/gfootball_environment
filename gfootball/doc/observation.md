@@ -79,7 +79,7 @@ Where `N` is the number of players on the team.
 In case of controlling `M` players (see multi-agent section), environment
 returns a list of `M` observations, one per each controlled player. For
 convenience, even if you control players on the right team, observations are
-mirrored (center of your goal is at `[-1, 0]`).
+mirrored (center of your goal is at `[-1, 0]`). 
 
 ## Observation Wrappers
 
