@@ -567,6 +567,7 @@ class CustomRewardWrapper(gym.Wrapper):
             observation["ball"][0], observation["ball"][1]
         )
 
+        # For efficiency, we calculate pitch control at intervals: if frame_cnt % k == 0
         pitch_control = self._pitch_control(observation)
 
         reward = self._reward_fn(reward)
