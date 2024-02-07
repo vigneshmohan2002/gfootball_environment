@@ -273,92 +273,81 @@ class Player(object):
         return f
 
 
-########
-# Agent#
-########
-def get_action(
-    players_pos_left,
-    players_dirs_left,
-    ball_pos,
-    ball_dir,
-    controlled_player_id,
-    controlled_team_id,
-    player_pos_right,
-    players_dirs_right,
-    is_dribbling,
-    is_sprinting,
-    previous_action,
-):
+def observation_to_pitch_control(obs):
 
-    global distance_shot_threshold
+    # Getting positions and directions of players and ball
+    left_team_positions = numpy.array(obs["left_team"]).reshape((-1, 2))
+    left_team_directions = numpy.array(obs["left_team_direction"]).reshape((-1, 2))
 
-    steps = 5
-    if controlled_team_id == 1:
-        players_pos_left = players_pos_left + steps * players_dirs_left
-        player_pos_right = player_pos_right + steps * players_dirs_right
-        ball_pos = ball_pos + steps * ball_dir
-    else:
-        ball_pos = ball_pos + steps * ball_dir
+    right_team_positions = numpy.array(obs["right_team"]).reshape((-1, 2))
+    right_team_directions = numpy.array(obs["right_team_direction"]).reshape((-1, 2))
 
-    # Normalize players and balls position and directions
-    players_pos_left_normalized = to_normalized_space_for_players(players_pos_left)
-    players_pos_right_normalized = to_normalized_space_for_players(player_pos_right)
-    ball_pos_normalized = to_normalized_space_for_players(ball_pos.reshape((-1, 2)))
+    ball_position = numpy.array([obs["ball"][0], obs["ball"][1]])
+    ball_direction = numpy.array([obs["ball_direction"][0], obs["ball_direction"][1]])
 
-    players_pos_left_normalized[:, 0] -= 0.5
-    players_pos_left_normalized[:, 1] = 1 - players_pos_left_normalized[:, 1] - 0.5
-    players_pos_right_normalized[:, 0] -= 0.5
-    players_pos_right_normalized[:, 1] = 1 - players_pos_right_normalized[:, 1] - 0.5
-    ball_pos_normalized[:, 0] -= 0.5
-    ball_pos_normalized[:, 1] = 1 - ball_pos_normalized[:, 1] - 0.5
-
-    players_dirs_left[:, 1] = -players_dirs_left[:, 1]
-    players_dirs_left_normalized = players_dirs_left / numpy.linalg.norm(
-        players_dirs_left, axis=1
-    ).reshape((-1, 1))
-
-    controlled_player_pos = players_pos_left[controlled_player_id]
-    controlled_player_pos_normalized = players_pos_left_normalized[controlled_player_id]
-    controlled_player_dir_normalized = players_dirs_left_normalized[
-        controlled_player_id
-    ]
-
-
-@human_readable_agent
-def agent(obs):
-
-    global previous_pass_step
-    global previous_action
-
-    # Getting data
-    players_pos_left = numpy.array(obs["left_team"]).reshape((-1, 2))
-    players_pos_right = numpy.array(obs["right_team"]).reshape((-1, 2))
-    players_dirs_left = numpy.array(obs["left_team_direction"]).reshape((-1, 2))
-    players_dirs_right = numpy.array(obs["right_team_direction"]).reshape((-1, 2))
-    ball_pos = numpy.array([obs["ball"][0], obs["ball"][1]])
-    ball_dir = numpy.array([obs["ball_direction"][0], obs["ball_direction"][1]])
-
+    # Getting the controlled player and team
     controlled_player_id = obs["active"]
-    controlled_team_id = obs["ball_owned_team"] + 1
+    controlled_team_id = obs["ball_owned_team"]  # + 1 (Original code)
+
     steps_left = obs["steps_left"]
     is_dribbling = False
     is_sprinting = False
 
-    ########
-    # Agent#
-    ########
-    action = get_action(
-        players_pos_left,
-        players_dirs_left,
-        ball_pos,
-        ball_dir,
-        controlled_player_id,
-        controlled_team_id,
-        players_pos_right,
-        players_dirs_right,
-        is_dribbling,
-        is_sprinting,
-        previous_action,
+    # Normalize players and balls position and directions
+    normalized_left_team_positions = to_normalized_space_for_players(
+        left_team_positions
+    )
+    normalized_right_team_positions = to_normalized_space_for_players(
+        right_team_positions
+    )
+    ball_pos_normalized = to_normalized_space_for_players(
+        ball_position.reshape((-1, 2))
     )
 
-    previous_action = action
+    normalized_left_team_positions[:, 0] -= 0.5
+    normalized_left_team_positions[:, 1] = (
+        1 - normalized_left_team_positions[:, 1] - 0.5
+    )
+
+    normalized_right_team_positions[:, 0] -= 0.5
+    normalized_right_team_positions[:, 1] = (
+        1 - normalized_right_team_positions[:, 1] - 0.5
+    )
+    ball_pos_normalized[:, 0] -= 0.5
+    ball_pos_normalized[:, 1] = 1 - ball_pos_normalized[:, 1] - 0.5
+
+    left_team_directions[:, 1] = -left_team_directions[:, 1]
+    players_dirs_left_normalized = left_team_directions / numpy.linalg.norm(
+        left_team_directions, axis=1
+    ).reshape((-1, 1))
+
+    controlled_player_pos = left_team_positions[controlled_player_id]
+    controlled_player_pos_normalized = left_team_positions[controlled_player_id]
+    controlled_player_dir_normalized = players_dirs_left_normalized[
+        controlled_player_id
+    ]
+
+    params = default_model_params()
+
+    left_team_players = []
+    right_team_players = []
+    for idx, p in enumerate(normalized_left_team_positions):
+        left_team_players.append(Player(idx, p * field_size, "Home", params, 0))
+
+    for idx, p in enumerate(normalized_right_team_positions):
+        right_team_players.append(Player(idx, p * field_size, "Away", params, 0))
+
+    # TODO: generate 24 target positions on the field and calculate the pitch control at each of these positions
+    target_position = []
+
+    # Classify left and right team into attacking and defending team based on possession of the ball
+    attacking_players, defending_players, possession = (
+        (left_team_players, right_team_players, True)
+        if controlled_team_id == 0
+        else (right_team_players, left_team_players, False)
+    )
+
+    # TODO: Calculate pitch control at each target position
+    # ppcf_att, ppcf_def = calculate_pitch_control_at_target(target, attacking_players, defending_players, ball_pos_normalized.flatten(), params)
+
+    # Depending on possession, we choose to reward or punish the model
