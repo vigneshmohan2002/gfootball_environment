@@ -338,7 +338,7 @@ def observation_to_pitch_control(obs):
         right_team_players.append(Player(idx, p * field_size, "Away", params, 0))
 
     # TODO: generate 24 target positions on the field and calculate the pitch control at each of these positions
-    target_position = []
+    target_positions = []
 
     # Classify left and right team into attacking and defending team based on possession of the ball
     attacking_players, defending_players, possession = (
@@ -348,6 +348,21 @@ def observation_to_pitch_control(obs):
     )
 
     # TODO: Calculate pitch control at each target position
-    # ppcf_att, ppcf_def = calculate_pitch_control_at_target(target, attacking_players, defending_players, ball_pos_normalized.flatten(), params)
+    pitch_control = []
+    for target in target_positions:
+        ppcf_att, ppcf_def = calculate_pitch_control_at_target(
+            target,
+            attacking_players,
+            defending_players,
+            ball_pos_normalized.flatten(),
+            params,
+        )
+        pitch_control.append(ppcf_att)
+
+    reward = 0
+    for val in pitch_control:
+        # Add the pitch control value to the reward vary according to the index of the target position
+        # Pattern of indices can be used to shape the reward according to the importance of different areas of the field
+        continue
 
     # Depending on possession, we choose to reward or punish the model
