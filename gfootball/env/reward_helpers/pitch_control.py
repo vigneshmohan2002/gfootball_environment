@@ -1,66 +1,92 @@
-import numpy
-import math
-import os
 import numpy as np
 import math
-import cv2
+
 
 distance_shot_threshold = 14
-field_size = numpy.array([106, 68])
-wpc = 1
-wepv = 0.3
-wxg = 1
-th_pass_d = 30  # meters
-th_angle = 15  # degrees
+field_size = np.array([106, 68])
+target_positions = np.array[
+    (0.08333333333333333, 0.125),
+    (0.08333333333333333, 0.375),
+    (0.08333333333333333, 0.625),
+    (0.08333333333333333, 0.875),
+    (0.25, 0.125),
+    (0.25, 0.375),
+    (0.25, 0.625),
+    (0.25, 0.875),
+    (0.41666666666666663, 0.125),
+    (0.41666666666666663, 0.375),
+    (0.41666666666666663, 0.625),
+    (0.41666666666666663, 0.875),
+    (0.5833333333333333, 0.125),
+    (0.5833333333333333, 0.375),
+    (0.5833333333333333, 0.625),
+    (0.5833333333333333, 0.875),
+    (0.75, 0.125),
+    (0.75, 0.375),
+    (0.75, 0.625),
+    (0.75, 0.875),
+    (0.9166666666666667, 0.125),
+    (0.9166666666666667, 0.375),
+    (0.9166666666666667, 0.625),
+    (0.9166666666666667, 0.875),
+]
+
+x_axes = np.array(
+    [[0, 0], [1 / 6, 0], [2 / 6, 0], [3 / 6, 0], [4 / 6, 0], [5 / 6, 0], [1, 0]]
+)
+y_axes = np.array([[0, 0], [0, 1 / 4], [0, 2 / 4], [0, 3 / 4], [0, 1]])
 
 
-#######################
-# Utilities functions #
-######################
+def position_to_reward_factor(position):
+    x = position[0]
+    y = position[1]
+    # The reward factor is a function of the position
+    # The reward factor can be used to shape the reward according to the importance of different areas of the field
+    # We prefer to 
 
 
 def to_normalized_space(p):
+    # This function converts the position from the original space to the normalized space
+    # In the normalized space, the centre of the field is [0.5, 0.5] and the top left corner is [0, 0] and the bottom right corner is [1, 1]
     xn = (p[0] + 1) / 2
     yn = (p[1] + 0.42) / 0.84
     return xn, yn
 
 
 def to_normalized_space_for_players(players):
-    normalized_players = numpy.zeros_like(players)
+    # This function converts the position of the player from the original space to the normalized space
+    normalized_players = np.zeros_like(players)
     normalized_players[:, 0] = (players[:, 0] + 1) / 2
     normalized_players[:, 1] = (players[:, 1] + 0.42) / 0.84
     return normalized_players
 
 
-# Consider changing this to a function that takes a list of players and returns only onside player, or can simply use a filter
-# Offside detection to avoid pass
-def offside(
+# Since we target areas of the pitch rather than players we should exclude offside areas from the reward.
+def get_onside_positions(
     controlled_player_pos_normalized,
-    player_pos_normalized,
     players_pos_right_normalized,
+    target_positions,
 ):
 
     th = 1 / 105
-    reciever_x = player_pos_normalized[0]
-    passer_x = controlled_player_pos_normalized[0]
-    last_defender_x = numpy.max(
-        players_pos_right_normalized[1:, 0]
-    )  # Take the maximum x position of the defending team except the goalkeeper
+    onside_positions = []
+    for target_position in target_positions:
+        target_position_x = target_position[0]
+        passer_x = controlled_player_pos_normalized[0]
+        last_defender_x = np.max(
+            players_pos_right_normalized[1:, 0]
+        )  # Take the maximum x position of the defending team except the goalkeeper
 
-    # if player is in own field i.e behind the halfway line thus offside won't apply
-    if reciever_x <= 0:
-        return False
+        # If player is in own field i.e behind the halfway line thus offside won't apply
+        if target_position_x <= 0:
+            onside_positions.append(target_position)
+            continue
 
-    # If last defender is between the [asser and reciever, then offside
-    if reciever_x + th > last_defender_x and passer_x < last_defender_x:
-        return True
+        # If last defender is between the passer and reciever then it's offside, so continue
+        if target_position_x + th > last_defender_x and passer_x < last_defender_x:
+            continue
 
-    return False
-
-
-#######################
-# Pitch Control Model #
-######################
+    return onside_positions
 
 
 def calculate_pitch_control_at_target(
@@ -249,7 +275,7 @@ class Player(object):
             params["lambda_gk"] if self.is_gk else params["lambda_def"]
         )  # factor of 3 ensures that anything near the GK is likely to be claimed by the GK
         self.position = pos
-        self.velocity = numpy.array([0, 0])
+        self.velocity = np.array([0, 0])
         self.PPCF = 0.0  # initialise this for later
 
     def simple_time_to_intercept(self, r_final):
@@ -276,22 +302,18 @@ class Player(object):
 def observation_to_pitch_control(obs):
 
     # Getting positions and directions of players and ball
-    left_team_positions = numpy.array(obs["left_team"]).reshape((-1, 2))
-    left_team_directions = numpy.array(obs["left_team_direction"]).reshape((-1, 2))
+    left_team_positions = np.array(obs["left_team"]).reshape((-1, 2))
+    left_team_directions = np.array(obs["left_team_direction"]).reshape((-1, 2))
 
-    right_team_positions = numpy.array(obs["right_team"]).reshape((-1, 2))
-    right_team_directions = numpy.array(obs["right_team_direction"]).reshape((-1, 2))
+    right_team_positions = np.array(obs["right_team"]).reshape((-1, 2))
+    right_team_directions = np.array(obs["right_team_direction"]).reshape((-1, 2))
 
-    ball_position = numpy.array([obs["ball"][0], obs["ball"][1]])
-    ball_direction = numpy.array([obs["ball_direction"][0], obs["ball_direction"][1]])
+    ball_position = np.array([obs["ball"][0], obs["ball"][1]])
+    ball_direction = np.array([obs["ball_direction"][0], obs["ball_direction"][1]])
 
     # Getting the controlled player and team
     controlled_player_id = obs["active"]
     controlled_team_id = obs["ball_owned_team"]  # + 1 (Original code)
-
-    steps_left = obs["steps_left"]
-    is_dribbling = False
-    is_sprinting = False
 
     # Normalize players and balls position and directions
     normalized_left_team_positions = to_normalized_space_for_players(
@@ -304,20 +326,21 @@ def observation_to_pitch_control(obs):
         ball_position.reshape((-1, 2))
     )
 
-    normalized_left_team_positions[:, 0] -= 0.5
-    normalized_left_team_positions[:, 1] = (
-        1 - normalized_left_team_positions[:, 1] - 0.5
-    )
+    # Further pre processing to work with the pitch control model
+    def to_metric_space(positions):
+        positions[:, 0] -= 0.5
+        positions[:, 1] = 1 - positions[:, 1] - 0.5
+        return positions
 
-    normalized_right_team_positions[:, 0] -= 0.5
-    normalized_right_team_positions[:, 1] = (
-        1 - normalized_right_team_positions[:, 1] - 0.5
-    )
-    ball_pos_normalized[:, 0] -= 0.5
-    ball_pos_normalized[:, 1] = 1 - ball_pos_normalized[:, 1] - 0.5
+    normalized_left_team_positions = to_metric_space(normalized_left_team_positions)
+
+    normalized_right_team_positions = to_metric_space(normalized_right_team_positions)
+
+    ball_pos_normalized = to_metric_space(ball_pos_normalized)
 
     left_team_directions[:, 1] = -left_team_directions[:, 1]
-    players_dirs_left_normalized = left_team_directions / numpy.linalg.norm(
+
+    players_dirs_left_normalized = left_team_directions / np.linalg.norm(
         left_team_directions, axis=1
     ).reshape((-1, 1))
 
@@ -337,9 +360,13 @@ def observation_to_pitch_control(obs):
     for idx, p in enumerate(normalized_right_team_positions):
         right_team_players.append(Player(idx, p * field_size, "Away", params, 0))
 
-    # TODO: generate 24 target positions on the field and calculate the pitch control at each of these positions
-    target_positions = []
+    onside_positions = get_onside_positions(
+        controlled_player_pos_normalized,
+        normalized_right_team_positions,
+        target_positions,
+    )
 
+    onside_positions = to_metric_space(onside_positions)
     # Classify left and right team into attacking and defending team based on possession of the ball
     attacking_players, defending_players, possession = (
         (left_team_players, right_team_players, True)
@@ -349,8 +376,8 @@ def observation_to_pitch_control(obs):
 
     # TODO: Calculate pitch control at each target position
     pitch_control = []
-    for target in target_positions:
-        ppcf_att, ppcf_def = calculate_pitch_control_at_target(
+    for target in onside_positions:
+        ppcf_att, _ = calculate_pitch_control_at_target(
             target,
             attacking_players,
             defending_players,
@@ -366,3 +393,18 @@ def observation_to_pitch_control(obs):
         continue
 
     # Depending on possession, we choose to reward or punish the model
+
+
+if __name__ == "__main__":
+    x_axes = np.array(
+        [[0, 0], [1 / 6, 0], [2 / 6, 0], [3 / 6, 0], [4 / 6, 0], [5 / 6, 0], [1, 0]]
+    )
+    y_axes = np.array([[0, 0], [0, 1 / 4], [0, 2 / 4], [0, 3 / 4], [0, 1]])
+    rectangle_centers = []
+    for i in range(len(x_axes) - 1):
+        for j in range(len(y_axes) - 1):
+            x_center = (x_axes[i][0] + x_axes[i + 1][0]) / 2
+            y_center = (y_axes[j][1] + y_axes[j + 1][1]) / 2
+            rectangle_centers.append((x_center, y_center))
+    print(len(rectangle_centers))
+    print(rectangle_centers)
