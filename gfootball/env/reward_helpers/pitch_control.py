@@ -38,7 +38,7 @@ y_axes = np.array([[0, 0], [0, 1 / 4], [0, 2 / 4], [0, 3 / 4], [0, 1]])
 
 
 def position_to_reward_factor(position):
-    '''
+    """
     This function takes the position of the player and returns the reward factor according to the position
     We are going to 'colour' the field according to the pitch control value we wish to assign
     The colours are used to group areas of the field together and assign the same reward factor to them
@@ -46,7 +46,7 @@ def position_to_reward_factor(position):
     position: tuple, the position of the player in the normalized space
     @returns:
     reward_factor: float, the reward factor assigned to the position
-    '''
+    """
     colour_reward_map = {
         "green": 0,
         "blue": 0,
@@ -59,16 +59,16 @@ def position_to_reward_factor(position):
     x = position[0]
     y = position[1]
     if y < 0.25 or y > 0.75:
-            if x < 0.16:
-                return colour_reward_map["green"]
-            elif x < 0.33:
-                return colour_reward_map["blue"]
-            elif x < 0.66:
-                return colour_reward_map["yellow"]
-            elif x < 0.83:
-                return colour_reward_map["pink"]
-            elif x <= 1:
-                return colour_reward_map["orange"]
+        if x < 0.16:
+            return colour_reward_map["green"]
+        elif x < 0.33:
+            return colour_reward_map["blue"]
+        elif x < 0.66:
+            return colour_reward_map["yellow"]
+        elif x < 0.83:
+            return colour_reward_map["pink"]
+        elif x <= 1:
+            return colour_reward_map["orange"]
     else:
         if x < 0.33:
             return colour_reward_map["green"]
@@ -308,14 +308,11 @@ class Player(object):
             params["lambda_gk"] if self.is_gk else params["lambda_def"]
         )  # factor of 3 ensures that anything near the GK is likely to be claimed by the GK
         self.position = pos
-        self.velocity = np.array([0, 0])
         self.PPCF = 0.0  # initialise this for later
 
     def simple_time_to_intercept(self, r_final):
-        self.PPCF = 0.0  # initialise this for later
-        # Time to intercept assumes that the player continues moving at current velocity for 'reaction_time' seconds
-        # and then runs at full speed to the target position.
-        r_reaction = self.position + self.velocity * self.reaction_time
+        self.PPCF = 0.0
+        r_reaction = self.position
         self.time_to_intercept = (
             self.reaction_time + np.linalg.norm(r_final - r_reaction) / self.vmax
         )
@@ -332,7 +329,7 @@ class Player(object):
         return f
 
 
-def observation_to_pitch_control(obs):
+def observation_to_pitch_control_reward(obs):
 
     # Getting positions and directions of players and ball
     left_team_positions = np.array(obs["left_team"]).reshape((-1, 2))
@@ -373,18 +370,12 @@ def observation_to_pitch_control(obs):
 
     left_team_directions[:, 1] = -left_team_directions[:, 1]
 
-    players_dirs_left_normalized = left_team_directions / np.linalg.norm(
-        left_team_directions, axis=1
-    ).reshape((-1, 1))
-
-    controlled_player_pos = left_team_positions[controlled_player_id]
     controlled_player_pos_normalized = left_team_positions[controlled_player_id]
-    controlled_player_dir_normalized = players_dirs_left_normalized[
-        controlled_player_id
-    ]
 
     params = default_model_params()
 
+    # In a real-world scenario we consider velocity of the players and the ball
+    # However for the sake of similicty and due to the realism lost in the environment, the effect of velocity in the model is negligible
     left_team_players = []
     right_team_players = []
     for idx, p in enumerate(normalized_left_team_positions):
