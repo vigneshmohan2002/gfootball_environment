@@ -26,6 +26,8 @@ from gfootball.env import observation_preprocessing
 import gym
 import numpy as np
 
+from reward_helpers.pitch_control import observation_to_pitch_control_reward
+
 
 class GetStateWrapper(gym.Wrapper):
     """A wrapper that only dumps traces/videos periodically."""
@@ -518,14 +520,17 @@ class CustomRewardWrapper(gym.Wrapper):
         """
         Calculate the pitch control of the team.
         """
-        return None
+        return observation_to_pitch_control_reward(observation)
 
     def _reward_fn(self, reward, xT, EPV, xG, pitch_control):
         """This will be an aggregation of the stats calculated by the above functions."""
         return None
 
     def step(self, action):
-        observation, reward, done, info = self.env.step(action)
+        observation, reward, done, info = self.env.step(
+            action
+        )  # The reward is the default reward from the environment including the score reward
+        
         # If action is a pass save the frame
         if (
             action
@@ -570,5 +575,5 @@ class CustomRewardWrapper(gym.Wrapper):
         # For efficiency, we calculate pitch control at intervals: if frame_cnt % k == 0
         pitch_control = self._pitch_control(observation)
 
-        reward = self._reward_fn(reward)
+        reward += self._reward_fn(reward)
         return self._get_observation(), reward, done, info
