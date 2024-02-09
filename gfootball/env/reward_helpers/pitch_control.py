@@ -1,7 +1,6 @@
 import numpy as np
 import math
 
-
 distance_shot_threshold = 14
 field_size = np.array([106, 68])
 target_positions = np.array[
@@ -76,14 +75,6 @@ def position_to_reward_factor(position):
             return colour_reward_map["blue"]
         elif x <= 1:
             return colour_reward_map["purple"]
-
-
-def to_normalized_space(p):
-    # This function converts the position from the original space to the normalized space
-    # In the normalized space, the centre of the field is [0.5, 0.5] and the top left corner is [0, 0] and the bottom right corner is [1, 1]
-    xn = (p[0] + 1) / 2
-    yn = (p[1] + 0.42) / 0.84
-    return xn, yn
 
 
 def to_normalized_space_for_players(players):
@@ -282,6 +273,7 @@ def default_model_params(time_to_control_veto=3):
         * np.log(10)
         * (np.sqrt(3) * params["tti_sigma"] / np.pi + 1 / params["lambda_def"])
     )
+    print(params)
     return params
 
 
