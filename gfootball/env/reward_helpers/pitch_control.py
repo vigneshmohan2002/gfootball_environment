@@ -333,13 +333,10 @@ def observation_to_pitch_control_reward(obs):
 
     # Getting positions and directions of players and ball
     left_team_positions = np.array(obs["left_team"]).reshape((-1, 2))
-    left_team_directions = np.array(obs["left_team_direction"]).reshape((-1, 2))
 
     right_team_positions = np.array(obs["right_team"]).reshape((-1, 2))
-    right_team_directions = np.array(obs["right_team_direction"]).reshape((-1, 2))
 
     ball_position = np.array([obs["ball"][0], obs["ball"][1]])
-    ball_direction = np.array([obs["ball_direction"][0], obs["ball_direction"][1]])
 
     # Getting the controlled player and team
     controlled_player_id = obs["active"]
@@ -367,8 +364,6 @@ def observation_to_pitch_control_reward(obs):
     normalized_right_team_positions = to_metric_space(normalized_right_team_positions)
 
     ball_pos_normalized = to_metric_space(ball_pos_normalized)
-
-    left_team_directions[:, 1] = -left_team_directions[:, 1]
 
     controlled_player_pos_normalized = left_team_positions[controlled_player_id]
 
@@ -409,7 +404,9 @@ def observation_to_pitch_control_reward(obs):
         )
         reward += ppcf_att * position_to_reward_factor(target)
 
-    # Depending on possession, we choose to reward or punish the model
+    if possession:
+        return reward
+    return -reward
 
 
 if __name__ == "__main__":
