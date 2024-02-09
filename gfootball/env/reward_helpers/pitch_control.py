@@ -38,11 +38,46 @@ y_axes = np.array([[0, 0], [0, 1 / 4], [0, 2 / 4], [0, 3 / 4], [0, 1]])
 
 
 def position_to_reward_factor(position):
+    '''
+    This function takes the position of the player and returns the reward factor according to the position
+    We are going to 'colour' the field according to the pitch control value we wish to assign
+    The colours are used to group areas of the field together and assign the same reward factor to them
+    @args:
+    position: tuple, the position of the player in the normalized space
+    @returns:
+    reward_factor: float, the reward factor assigned to the position
+    '''
+    colour_reward_map = {
+        "green": 0,
+        "blue": 0,
+        "yellow": 0,
+        "pink": 0,
+        "purple": 0,
+        "orange": 0,
+        "red": 0,
+    }
     x = position[0]
     y = position[1]
-    # The reward factor is a function of the position
-    # The reward factor can be used to shape the reward according to the importance of different areas of the field
-    # We prefer to 
+    if y < 0.25 or y > 0.75:
+            if x < 0.16:
+                return colour_reward_map["green"]
+            elif x < 0.33:
+                return colour_reward_map["blue"]
+            elif x < 0.5:
+                return colour_reward_map["blue"]
+            elif x < 0.66:
+                return colour_reward_map["yellow"]
+            elif x < 0.83:
+                return colour_reward_map["pink"]
+            elif x <= 1:
+                return colour_reward_map["orange"]
+    else:
+        if x < 0.33:
+            return colour_reward_map["green"]
+        elif x < 0.66:
+            return colour_reward_map["blue"]
+        elif x <= 1:
+            return colour_reward_map["purple"]
 
 
 def to_normalized_space(p):
