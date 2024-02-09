@@ -63,8 +63,6 @@ def position_to_reward_factor(position):
                 return colour_reward_map["green"]
             elif x < 0.33:
                 return colour_reward_map["blue"]
-            elif x < 0.5:
-                return colour_reward_map["blue"]
             elif x < 0.66:
                 return colour_reward_map["yellow"]
             elif x < 0.83:
@@ -409,8 +407,7 @@ def observation_to_pitch_control(obs):
         else (right_team_players, left_team_players, False)
     )
 
-    # TODO: Calculate pitch control at each target position
-    pitch_control = []
+    reward = 0
     for target in onside_positions:
         ppcf_att, _ = calculate_pitch_control_at_target(
             target,
@@ -419,13 +416,7 @@ def observation_to_pitch_control(obs):
             ball_pos_normalized.flatten(),
             params,
         )
-        pitch_control.append(ppcf_att)
-
-    reward = 0
-    for val in pitch_control:
-        # Add the pitch control value to the reward vary according to the index of the target position
-        # Pattern of indices can be used to shape the reward according to the importance of different areas of the field
-        continue
+        reward += ppcf_att * position_to_reward_factor(target)
 
     # Depending on possession, we choose to reward or punish the model
 
