@@ -32,6 +32,3 @@ cmake_install.cmake
 # IDE
 .idea
 .vs*
-venv/lib/python3.11/site-packages/pip/__init__.py
-venv/lib/python3.11/site-packages/pip/_internal/commands/cache.py
-venv/lib/python3.11/site-packages/pip/_internal/commands/configuration.py
