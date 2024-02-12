@@ -7,9 +7,10 @@ __pycache__
 dist/
 # virtual environment
 football-env*/
+venv/lib/python3.11/site-packages/*
+venv/bin/
+venv/share/
 venv/*
-.venv/*
-
 # Large files
 *.json
 
