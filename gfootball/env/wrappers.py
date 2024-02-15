@@ -27,6 +27,7 @@ import gym
 import numpy as np
 
 from reward_helpers.pitch_control import observation_to_pitch_control_reward
+from reward_helpers.expected_goals import get_xg_from_game_obs_point
 
 
 class GetStateWrapper(gym.Wrapper):
@@ -510,11 +511,12 @@ class CustomRewardWrapper(gym.Wrapper):
         """
         return None
 
-    def _expected_goals(self, shot_info):
+    def _expected_goals(self, shot_frame):
         """
         Calculate the xG value of a shot.
         """
-        return None
+        shot_pos = shot_frame["ball"][0], shot_frame["ball"][1]
+        return get_xg_from_game_obs_point(shot_pos)
 
     def _pitch_control(self, observation):
         """
@@ -530,7 +532,7 @@ class CustomRewardWrapper(gym.Wrapper):
         observation, reward, done, info = self.env.step(
             action
         )  # The reward is the default reward from the environment including the score reward
-        
+
         # If action is a pass save the frame
         if (
             action
