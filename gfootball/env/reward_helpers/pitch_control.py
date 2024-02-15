@@ -396,21 +396,4 @@ def observation_to_pitch_control_reward(obs):
         )
         reward += ppcf_att * position_to_reward_factor(target)
 
-    if possession:
-        return reward
-    return -reward
-
-
-if __name__ == "__main__":
-    x_axes = np.array(
-        [[0, 0], [1 / 6, 0], [2 / 6, 0], [3 / 6, 0], [4 / 6, 0], [5 / 6, 0], [1, 0]]
-    )
-    y_axes = np.array([[0, 0], [0, 1 / 4], [0, 2 / 4], [0, 3 / 4], [0, 1]])
-    rectangle_centers = []
-    for i in range(len(x_axes) - 1):
-        for j in range(len(y_axes) - 1):
-            x_center = (x_axes[i][0] + x_axes[i + 1][0]) / 2
-            y_center = (y_axes[j][1] + y_axes[j + 1][1]) / 2
-            rectangle_centers.append((x_center, y_center))
-    print(len(rectangle_centers))
-    print(rectangle_centers)
+    return reward
