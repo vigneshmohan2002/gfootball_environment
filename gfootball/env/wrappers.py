@@ -539,12 +539,15 @@ class CustomRewardWrapper(gym.Wrapper):
 
     def _reward_fn(self, xT, EPV, xG, pitch_control):
         """This will be an aggregation of the stats calculated by the above functions."""
-        weight_xT = 1
-        weight_EPV = 1
-        weight_xG = 1
+        weight_xT = 0.002  # Given per pass
+        weight_EPV = 0.000
+        weight_xG = 0.05  # G0ven per shot
         weight_pitch_control = 1
         add_reward = (
-            weight_xT * xT + weight_EPV * EPV + weight_xG * xG + weight_pitch_control * pitch_control
+            weight_xT * xT
+            + weight_EPV * EPV
+            + weight_xG * xG
+            + weight_pitch_control * pitch_control
         )
         return add_reward
 
