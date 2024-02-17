@@ -539,7 +539,14 @@ class CustomRewardWrapper(gym.Wrapper):
 
     def _reward_fn(self, xT, EPV, xG, pitch_control):
         """This will be an aggregation of the stats calculated by the above functions."""
-        return None
+        weight_xT = 1
+        weight_EPV = 1
+        weight_xG = 1
+        weight_pitch_control = 1
+        add_reward = (
+            weight_xT * xT + weight_EPV * EPV + weight_xG * xG + weight_pitch_control * pitch_control
+        )
+        return add_reward
 
     def step(self, action):
         observation, reward, done, info = self.env.step(
@@ -580,7 +587,6 @@ class CustomRewardWrapper(gym.Wrapper):
         if action == football_action_set.action_shot:
             xG = self._expected_goals(observation["ball"])
 
-        # For efficiency, we calculate pitch control at intervals:
         # If frame_cnt is not available, 3000-steps_left is used as a proxy
         k = 10
         if observation["frame_cnt"] % k == 0:
