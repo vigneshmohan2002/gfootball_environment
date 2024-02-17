@@ -28,6 +28,7 @@ import numpy as np
 
 from reward_helpers.pitch_control import observation_to_pitch_control_reward
 from reward_helpers.expected_goals import get_xg_from_game_obs_point
+from reward_helpers.expected_threat import calculate_threat_from_pass_points
 
 
 class GetStateWrapper(gym.Wrapper):
@@ -503,7 +504,7 @@ class CustomRewardWrapper(gym.Wrapper):
         Calculate the expected threat of a pass.
         Note: xT is a metric that can also evaluate the quality of a dribbe/carry play.
         """
-        
+
         pass_played_location = (
             self.pass_played_frame[0]["ball"][0],
             self.pass_played_frame[0]["ball"][1],
@@ -512,8 +513,10 @@ class CustomRewardWrapper(gym.Wrapper):
             pass_received_ball_pos["ball"][0],
             pass_received_ball_pos["ball"][1],
         )
-
-        return None
+        xT = calculate_threat_from_pass_points(
+            pass_played_location, pass_received_ball_pos
+        )
+        return xT
 
     def _expected_possession_value(self, ball_location):
         """
@@ -534,7 +537,7 @@ class CustomRewardWrapper(gym.Wrapper):
         """
         return observation_to_pitch_control_reward(observation)
 
-    def _reward_fn(self, reward, xT, EPV, xG, pitch_control):
+    def _reward_fn(self, xT, EPV, xG, pitch_control):
         """This will be an aggregation of the stats calculated by the above functions."""
         return None
 
@@ -542,7 +545,10 @@ class CustomRewardWrapper(gym.Wrapper):
         observation, reward, done, info = self.env.step(
             action
         )  # The reward is the default reward from the environment including the score reward
-
+        xG = 0
+        xT = 0
+        epv = 0
+        pitch_control = 0
         # If action is a pass save the frame
         if (
             action
@@ -574,15 +580,14 @@ class CustomRewardWrapper(gym.Wrapper):
         if action == football_action_set.action_shot:
             xG = self._expected_goals(observation["ball"])
 
-        epv = self._expected_possession_value(
-            observation["ball"][0], observation["ball"][1]
-        )
-
         # For efficiency, we calculate pitch control at intervals:
         # If frame_cnt is not available, 3000-steps_left is used as a proxy
         k = 10
         if observation["frame_cnt"] % k == 0:
             pitch_control = self._pitch_control(observation)
+            epv = self._expected_possession_value(
+                observation["ball"][0], observation["ball"][1]
+            )
 
-        reward += self._reward_fn(reward)
+        reward += self._reward_fn(xT, epv, xG, pitch_control)
         return self._get_observation(), reward, done, info
