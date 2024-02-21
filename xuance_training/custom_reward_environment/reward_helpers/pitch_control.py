@@ -324,15 +324,15 @@ class Player(object):
 def observation_to_pitch_control_reward(obs):
 
     # Getting positions and directions of players and ball
-    left_team_positions = np.array(obs["left_team"]).reshape((-1, 2))
+    left_team_positions = np.array(obs["left_team_coords"]).reshape((-1, 2))
 
-    right_team_positions = np.array(obs["right_team"]).reshape((-1, 2))
+    right_team_positions = np.array(obs["right_team_coords"]).reshape((-1, 2))
 
     ball_position = np.array([obs["ball"][0], obs["ball"][1]])
 
     # Getting the controlled player and team
-    controlled_player_id = obs["active"]
-    controlled_team_id = obs["ball_owned_team"]  # + 1 (Original code)
+    controlled_player_id = obs["ball_owned_player"]
+    controlled_team_id = obs["ball_owned_team"]
 
     # Normalize players and balls position and directions
     normalized_left_team_positions = to_normalized_space_for_players(
