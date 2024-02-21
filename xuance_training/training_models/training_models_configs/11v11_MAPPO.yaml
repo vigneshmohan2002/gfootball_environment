@@ -14,7 +14,7 @@ use_stacked_frames: False  # Whether to use stacked_frames
 num_agent: 11
 num_adversary: 0
 obs_type: "simple115v2"  # representation used to build the observation, choices: ["simple115v2", "extracted", "pixels_gray", "pixels"]
-rewards_type: "scoring,checkpoints"  # comma separated list of rewards to be added`
+rewards_type: "scoring"  # comma separated list of rewards to be added`
 smm_width: 96  # width of super minimap
 smm_height: 72  # height of super minimap
 fps: 15
