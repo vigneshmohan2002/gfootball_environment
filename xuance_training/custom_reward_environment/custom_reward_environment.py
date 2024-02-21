@@ -3,6 +3,7 @@ import numpy as np
 from reward_helpers.pitch_control import observation_to_pitch_control_reward
 from reward_helpers.expected_goals import get_xg_from_game_obs_point
 from reward_helpers.expected_threat import calculate_threat_from_pass_points
+from reward_helpers.simple115_to_simple_obs import observation_converter
 
 import deepcopy
 from xuance.environment.football.gfootball_env import GFootball_Env
@@ -78,7 +79,7 @@ class CustomRewardGFootball_env(GFootball_Env):
             actions: the actions for all agents.
         """
         obs, reward, terminated, truncated, info = self.env.step(actions)
-        reward_shaping_observation = deepcopy(obs)
+        reward_shaping_observation = observation_converter(obs[0])
         obs = obs.reshape([self.n_agents, -1])
         state = self.get_state()
         self._episode_step += 1
