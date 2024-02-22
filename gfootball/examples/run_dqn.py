@@ -13,18 +13,19 @@ import multiprocessing
 import os
 import gfootball.env as football_env
 from gfootball.examples import models
-from stable_baselines.common.callbacks import CheckpointCallback
+from stable_baselines.common.callbacks import CheckpointCallback, BaseCallback
 import time
+import numpy as np
 
 
 def create_single_football_env():
     """Creates gfootball environment."""
     env = football_env.create_environment(
-        env_name="11_vs_11_hard_stochastic",
+        env_name="11_vs_11_easy_stochastic",
         stacked=(True),
         rewards="scoring",
         logdir=logger.get_dir(),
-        write_goal_dumps=True,
+        write_goal_dumps=False,
         write_full_episode_dumps=False,
         render=False,
         dump_frequency=50,
@@ -42,10 +43,19 @@ def train(gamma, lr, buffer_size, num_timesteps, save_interval, num_envs):
 
     # Import tensorflow after we create environments. TF is not fork sake, and
     # we could be using TF as part of environment if one of the players is
-    # controlled by an already trained model.. TF is not fork sake, and
+    # controlled by an already trained model. TF is not fork sake, and
     # we could be using TF as part of environment if one of the players is
     # controlled by an already trained model.
     import tensorflow.compat.v1 as tf
+
+    class TensorboardCallback(BaseCallback):
+        def __init__(self, verbose=0):
+            self.is_tb_set = False
+            super(TensorboardCallback, self).__init__(verbose)
+        def _on_rollout_end(self) -> None:
+            if not self.is_tb_set:
+                self.is_tb_set = True
+                self.locals["writer"].add_graph(tf.get_default_graph())
 
     os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
     ncpu = multiprocessing.cpu_count()
@@ -65,11 +75,13 @@ def train(gamma, lr, buffer_size, num_timesteps, save_interval, num_envs):
         learning_rate=lr,
         buffer_size=buffer_size,
         verbose=1,
+        tensorboard_log="./dqn_11_vs_11_easy_stochastic_tensorboard/",
     )
     # Train the DQN model
     verbose_callback = CheckpointCallback(
         verbose=1, save_freq=10000000, save_path="./checkpoints/"
     )
+
     model.learn(
         total_timesteps=num_timesteps, log_interval=1, callback=verbose_callback
     )

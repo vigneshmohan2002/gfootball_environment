@@ -1,30 +1,14 @@
-# coding=utf-8
-# Copyright 2019 Google LLC
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Runs football_env on OpenAI's ppo2."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import multiprocessing
 import os
 from absl import app
 from absl import flags
-from baselines import logger
-from baselines.bench import monitor
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-from baselines.ppo2 import ppo2
+
+from stable_baselines import PPO2, logger
+from stable_baselines.common.vec_env import SubprocVecEnv
+from stable_baselines.bench import monitor
+
 import gfootball.env as football_env
 from gfootball.examples import models
 
@@ -118,7 +102,7 @@ def train(_):
     config.gpu_options.allow_growth = True
     tf.Session(config=config).__enter__()
 
-    ppo2.learn(
+    model = PPO2(
         network=FLAGS.policy,
         total_timesteps=FLAGS.num_timesteps,
         env=vec_env,
@@ -134,7 +118,10 @@ def train(_):
         save_interval=FLAGS.save_interval,
         cliprange=FLAGS.cliprange,
         load_path=FLAGS.load_path,
+        tensorboard_log="./ppo2_11_vs_11_easy_stochastic_tensorboard/",
     )
+    model.learn(total_timesteps=FLAGS.num_timesteps)
+    model.save("ppo2_11_vs_11_easy_stochastic")
 
 
 if __name__ == "__main__":
