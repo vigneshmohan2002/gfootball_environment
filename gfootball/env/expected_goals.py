@@ -7,7 +7,6 @@ def to_normalized_space(p):
     # In the normalized space, the centre of the field is [0.5, 0.5] and the top left corner is [0, 0] and the bottom right corner is [1, 1]
     xn = (p[0] + 1) / 2
     yn = (p[1] + 0.42) / 0.84
-    print("Normalized space point: ", xn, ", ", yn)
     return xn, yn
 
 

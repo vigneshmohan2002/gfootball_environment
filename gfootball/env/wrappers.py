@@ -25,10 +25,10 @@ from gfootball.env import football_action_set
 from gfootball.env import observation_preprocessing
 import gym
 import numpy as np
-
-from reward_helpers.pitch_control import observation_to_pitch_control_reward
-from reward_helpers.expected_goals import get_xg_from_game_obs_point
-from reward_helpers.expected_threat import calculate_threat_from_pass_points
+from gfootball.env import pitch_control
+from gfootball.env import expected_goals
+from gfootball.env import expected_threat
+from gfootball.env import epv
 
 
 class GetStateWrapper(gym.Wrapper):
@@ -498,6 +498,17 @@ class CustomRewardWrapper(gym.Wrapper):
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
         self.pass_played_frame = None
+        self.cumulative_reward = 0
+        self.cumulative_xT = 0
+        self.cumulative_EPV = 0
+        self.cumulative_xG = 0
+        self.cumulative_pitch_control = 0
+        self.pass_received_count = 0
+        self.pass_played_count = 0
+        self.shot_count = 0
+        self.possession = 0
+        self.opp_possession = 0
+        self.out_of_play = 0
 
     def _expected_threat_pass(self, pass_received_ball_pos):
         """
@@ -509,40 +520,45 @@ class CustomRewardWrapper(gym.Wrapper):
             self.pass_played_frame[0]["ball"][0],
             self.pass_played_frame[0]["ball"][1],
         )
-        pass_played_location = (
-            pass_received_ball_pos["ball"][0],
-            pass_received_ball_pos["ball"][1],
+        pass_received_ball_pos = (
+            pass_received_ball_pos[0],
+            pass_received_ball_pos[1],
         )
-        xT = calculate_threat_from_pass_points(
+        xT = expected_threat.calculate_threat_from_pass_points(
             pass_played_location, pass_received_ball_pos
         )
-        return xT
+        return max(xT, 0)
 
     def _expected_possession_value(self, ball_location):
         """
         Calculate the expected possession value solely based on the location of the ball.
         """
-        return None
+        return epv.get_epv_for_ball_position(ball_location)
 
     def _expected_goals(self, ball_location):
         """
         Calculate the xG value of a shot.
         """
         shot_pos = ball_location[0], ball_location[1]
-        return get_xg_from_game_obs_point(shot_pos)
+        xG = expected_goals.get_xg_from_game_obs_point(shot_pos)
+        if xG < 0.1:
+            return -0.1
+        return xG
 
     def _pitch_control(self, observation):
         """
         Calculate the pitch control of the team.
         """
-        return observation_to_pitch_control_reward(observation)
+        return pitch_control.observation_to_pitch_control_reward(observation)
 
     def _reward_fn(self, xT, EPV, xG, pitch_control):
         """This will be an aggregation of the stats calculated by the above functions."""
-        weight_xT = 0.002  # Given per pass
-        weight_EPV = 0.0016 # This is a very small value as EPV is given frequently
-        weight_xG = 0.05  # Given per shot
-        weight_pitch_control = 0.0016 # This is a very small value as PC is given frequently
+        weight_xT = 0.05  # Given per pass
+        weight_EPV = 0.002  # This is a very small value as EPV is given frequently
+        weight_xG = 0.1  # Given per shot
+        weight_pitch_control = (
+            0.002  # This is a very small value as PC is given frequently
+        )
         add_reward = (
             weight_xT * xT
             + weight_EPV * EPV
@@ -550,6 +566,33 @@ class CustomRewardWrapper(gym.Wrapper):
             + weight_pitch_control * pitch_control
         )
         return add_reward
+
+    def print_stats(self):
+        print("Cumulative reward: ", self.cumulative_reward)
+        print("Cumulative xT: ", 0.002 * self.cumulative_xT)
+        print("Cumulative EPV: ", 0.0016 * self.cumulative_EPV)
+        print("Cumulative xG: ", 0.05 * self.cumulative_xG)
+        print("Cumulative pitch control: ", 0.0016 * self.cumulative_pitch_control)
+        print("Pass played count: ", self.pass_played_count)
+        print("Pass received count: ", self.pass_received_count)
+        print("Shot count: ", self.shot_count)
+        print("Possession: ", self.possession / 3001)
+        print("Opponent possession: ", self.opp_possession / 3001)
+        print("Out of play: ", self.out_of_play / 3001)
+
+    def reset_stats(self):
+        self.pass_played_frame = None
+        self.cumulative_reward = 0
+        self.cumulative_xT = 0
+        self.cumulative_EPV = 0
+        self.cumulative_xG = 0
+        self.cumulative_pitch_control = 0
+        self.pass_received_count = 0
+        self.pass_played_count = 0
+        self.shot_count = 0
+        self.possession = 0
+        self.opp_possession = 0
+        self.out_of_play = 0
 
     def step(self, action):
         observation, reward, done, info = self.env.step(
@@ -559,22 +602,36 @@ class CustomRewardWrapper(gym.Wrapper):
         xT = 0
         epv = 0
         pitch_control = 0
+        action_set = {
+            "action_long_pass": 9,
+            "action_high_pass": 10,
+            "action_short_pass": 11,
+            "action_shot": 12,
+        }
+        obs = observation
+        observation = observation[0]
+        if observation["ball_owned_team"] == 0:
+            self.possession += 1
+        elif observation["ball_owned_team"] == 1:
+            self.opp_possession += 1
+        else:
+            self.out_of_play += 1
         # If action is a pass save the frame
         if (
             action
             in [
-                football_action_set.action_short_pass,
-                football_action_set.action_long_pass,
-                football_action_set.action_high_pass,
+                action_set["action_short_pass"],
+                action_set["action_long_pass"],
+                action_set["action_high_pass"],
             ]
-            and observation["ball_owned_team"] == 1
+            and observation["ball_owned_team"] == 0
         ):
+            self.pass_played_count += 1
             self.pass_played_frame = (
                 observation,
                 observation["ball_owned_player"],
                 observation["ball_owned_team"],
             )
-
         # Detect when the pass is received
         observation_bop = observation["ball_owned_player"]
         # If the ball is owned by a different player than the one who played the pass, then the pass was received
@@ -582,21 +639,214 @@ class CustomRewardWrapper(gym.Wrapper):
             -1,
             self.pass_played_frame[1],
         ]:
+            self.pass_received_count += 1
             # We only need the x and y coordinates of the ball
             xT = self._expected_threat_pass(observation["ball"])
             self.pass_played_frame = None
 
         # If action is a shot calculate the xG
-        if action == football_action_set.action_shot:
+        if action == action_set["action_shot"] and observation["ball_owned_team"] == 0:
+            self.shot_count += 1
             xG = self._expected_goals(observation["ball"])
 
-        # If frame_cnt is not available, 3000-steps_left is used as a proxy
         k = 10
-        if observation["frame_cnt"] % k == 0:
+        frame_cnt = 3001 - observation["steps_left"]
+        if frame_cnt % k == 0:
             pitch_control = self._pitch_control(observation)
-            epv = self._expected_possession_value(
-                observation["ball"][0], observation["ball"][1]
-            )
+            if observation["ball_owned_team"] == 0:
+                epv = self._expected_possession_value(
+                    (observation["ball"][0], observation["ball"][1])
+                )
 
-        reward += self._reward_fn(xT, epv, xG, pitch_control)
-        return self._get_observation(), reward, done, info
+        custom_reward = self._reward_fn(xT, epv, xG, pitch_control)
+        reward += custom_reward
+        self.cumulative_reward += custom_reward
+        self.cumulative_xT += xT
+        self.cumulative_EPV += epv
+        self.cumulative_xG += xG
+        self.cumulative_pitch_control += pitch_control
+        if done:
+            self.print_stats()
+            self.reset_stats()
+        return obs, reward, done, info
+
+
+class DebugWrapper(gym.Wrapper):
+    """A wrapper that adds a custom reward utilizing advanced football metrics
+    Pitch Control, Expected Goals, Expected Possession Value and Expected Threat
+    to the environment."""
+
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+        self.pass_played_frame = None
+        self.cumulative_reward = 0
+        self.cumulative_xT = 0
+        self.cumulative_EPV = 0
+        self.cumulative_xG = 0
+        self.cumulative_pitch_control = 0
+        self.pass_received_count = 0
+        self.pass_played_count = 0
+        self.shot_count = 0
+        self.possession = 0
+        self.opp_possession = 0
+        self.out_of_play = 0
+
+    def _expected_threat_pass(self, pass_received_ball_pos):
+        """
+        Calculate the expected threat of a pass.
+        Note: xT is a metric that can also evaluate the quality of a dribbe/carry play.
+        """
+
+        pass_played_location = (
+            self.pass_played_frame[0]["ball"][0],
+            self.pass_played_frame[0]["ball"][1],
+        )
+        pass_received_ball_pos = (
+            pass_received_ball_pos[0],
+            pass_received_ball_pos[1],
+        )
+        xT = expected_threat.calculate_threat_from_pass_points(
+            pass_played_location, pass_received_ball_pos
+        )
+        return max(xT, 0)
+
+    def _expected_possession_value(self, ball_location):
+        """
+        Calculate the expected possession value solely based on the location of the ball.
+        """
+        return epv.get_epv_for_ball_position(ball_location)
+
+    def _expected_goals(self, ball_location):
+        """
+        Calculate the xG value of a shot.
+        """
+        shot_pos = ball_location[0], ball_location[1]
+        xG = expected_goals.get_xg_from_game_obs_point(shot_pos)
+        if xG < 0.1:
+            return -0.1
+        return xG
+
+    def _pitch_control(self, observation):
+        """
+        Calculate the pitch control of the team.
+        """
+        return pitch_control.observation_to_pitch_control_reward(observation)
+
+    def _reward_fn(self, xT, EPV, xG, pitch_control):
+        """This will be an aggregation of the stats calculated by the above functions."""
+        weight_xT = 0.05  # Given per pass
+        weight_EPV = 0.002  # This is a very small value as EPV is given frequently
+        weight_xG = 0.1  # Given per shot
+        weight_pitch_control = (
+            0.002  # This is a very small value as PC is given frequently
+        )
+        add_reward = (
+            weight_xT * xT
+            + weight_EPV * EPV
+            + weight_xG * xG
+            + weight_pitch_control * pitch_control
+        )
+        return add_reward
+
+    def print_stats(self):
+        print("Debug stats")
+        print("Cumulative reward: ", self.cumulative_reward)
+        print("Cumulative xT: ", 0.002 * self.cumulative_xT)
+        print("Cumulative EPV: ", 0.0016 * self.cumulative_EPV)
+        print("Cumulative xG: ", 0.05 * self.cumulative_xG)
+        print("Cumulative pitch control: ", 0.0016 * self.cumulative_pitch_control)
+        print("Pass played count: ", self.pass_played_count)
+        print("Pass received count: ", self.pass_received_count)
+        print("Shot count: ", self.shot_count)
+        print("Possession: ", self.possession / 3001)
+        print("Opponent possession: ", self.opp_possession / 3001)
+        print("Out of play: ", self.out_of_play / 3001)
+
+    def reset_stats(self):
+        self.pass_played_frame = None
+        self.cumulative_reward = 0
+        self.cumulative_xT = 0
+        self.cumulative_EPV = 0
+        self.cumulative_xG = 0
+        self.cumulative_pitch_control = 0
+        self.pass_received_count = 0
+        self.pass_played_count = 0
+        self.shot_count = 0
+        self.possession = 0
+        self.opp_possession = 0
+        self.out_of_play = 0
+
+    def step(self, action):
+        observation, reward, done, info = self.env.step(
+            action
+        )  # The reward is the default reward from the environment including the score reward
+        xG = 0
+        xT = 0
+        epv = 0
+        pitch_control = 0
+        action_set = {
+            "action_long_pass": 9,
+            "action_high_pass": 10,
+            "action_short_pass": 11,
+            "action_shot": 12,
+        }
+        obs = observation
+        observation = observation[0]
+        if observation["ball_owned_team"] == 0:
+            self.possession += 1
+        elif observation["ball_owned_team"] == 1:
+            self.opp_possession += 1
+        else:
+            self.out_of_play += 1
+        # If action is a pass save the frame
+        if (
+            action
+            in [
+                action_set["action_short_pass"],
+                action_set["action_long_pass"],
+                action_set["action_high_pass"],
+            ]
+            and observation["ball_owned_team"] == 0
+        ):
+            self.pass_played_count += 1
+            self.pass_played_frame = (
+                observation,
+                observation["ball_owned_player"],
+                observation["ball_owned_team"],
+            )
+        # Detect when the pass is received
+        observation_bop = observation["ball_owned_player"]
+        # If the ball is owned by a different player than the one who played the pass, then the pass was received
+        if self.pass_played_frame is not None and observation_bop not in [
+            -1,
+            self.pass_played_frame[1],
+        ]:
+            self.pass_received_count += 1
+            # We only need the x and y coordinates of the ball
+            xT = self._expected_threat_pass(observation["ball"])
+            self.pass_played_frame = None
+
+        # If action is a shot calculate the xG
+        if action == action_set["action_shot"] and observation["ball_owned_team"] == 0:
+            self.shot_count += 1
+            xG = self._expected_goals(observation["ball"])
+
+        k = 10
+        frame_cnt = 3001 - observation["steps_left"]
+        if frame_cnt % k == 0:
+            pitch_control = self._pitch_control(observation)
+            if observation["ball_owned_team"] == 0:
+                epv = self._expected_possession_value(
+                    (observation["ball"][0], observation["ball"][1])
+                )
+        # Calculate the custom reward but do NOT add it to the reward
+        custom_reward = self._reward_fn(xT, epv, xG, pitch_control)
+        self.cumulative_reward += custom_reward
+        self.cumulative_xT += xT
+        self.cumulative_EPV += epv
+        self.cumulative_xG += xG
+        self.cumulative_pitch_control += pitch_control
+        if done:
+            self.print_stats()
+            self.reset_stats()
+        return obs, reward, done, info

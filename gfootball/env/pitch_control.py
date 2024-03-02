@@ -3,32 +3,34 @@ import math
 
 distance_shot_threshold = 14
 field_size = np.array([106, 68])
-target_positions = np.array[
-    (0.08333333333333333, 0.125),
-    (0.08333333333333333, 0.375),
-    (0.08333333333333333, 0.625),
-    (0.08333333333333333, 0.875),
-    (0.25, 0.125),
-    (0.25, 0.375),
-    (0.25, 0.625),
-    (0.25, 0.875),
-    (0.41666666666666663, 0.125),
-    (0.41666666666666663, 0.375),
-    (0.41666666666666663, 0.625),
-    (0.41666666666666663, 0.875),
-    (0.5833333333333333, 0.125),
-    (0.5833333333333333, 0.375),
-    (0.5833333333333333, 0.625),
-    (0.5833333333333333, 0.875),
-    (0.75, 0.125),
-    (0.75, 0.375),
-    (0.75, 0.625),
-    (0.75, 0.875),
-    (0.9166666666666667, 0.125),
-    (0.9166666666666667, 0.375),
-    (0.9166666666666667, 0.625),
-    (0.9166666666666667, 0.875),
-]
+target_positions = np.array(
+    [
+        (0.08333333333333333, 0.125),
+        (0.08333333333333333, 0.375),
+        (0.08333333333333333, 0.625),
+        (0.08333333333333333, 0.875),
+        (0.25, 0.125),
+        (0.25, 0.375),
+        (0.25, 0.625),
+        (0.25, 0.875),
+        (0.41666666666666663, 0.125),
+        (0.41666666666666663, 0.375),
+        (0.41666666666666663, 0.625),
+        (0.41666666666666663, 0.875),
+        (0.5833333333333333, 0.125),
+        (0.5833333333333333, 0.375),
+        (0.5833333333333333, 0.625),
+        (0.5833333333333333, 0.875),
+        (0.75, 0.125),
+        (0.75, 0.375),
+        (0.75, 0.625),
+        (0.75, 0.875),
+        (0.9166666666666667, 0.125),
+        (0.9166666666666667, 0.375),
+        (0.9166666666666667, 0.625),
+        (0.9166666666666667, 0.875),
+    ]
+)
 
 x_axes = np.array(
     [[0, 0], [1 / 6, 0], [2 / 6, 0], [3 / 6, 0], [4 / 6, 0], [5 / 6, 0], [1, 0]]
@@ -47,13 +49,13 @@ def position_to_reward_factor(position):
     reward_factor: float, the reward factor assigned to the position
     """
     colour_reward_map = {
-        "green": 0,
-        "blue": 0,
-        "yellow": 0,
-        "pink": 0,
-        "purple": 0,
-        "orange": 0,
-        "red": 0,
+        "green": 0.05,
+        "blue": 0.07,
+        "yellow": 0.1,
+        "pink": 0.15,
+        "purple": 0.2,
+        "orange": 0.25,
+        "red": 0.3,
     }
     x = position[0]
     y = position[1]
@@ -109,6 +111,8 @@ def get_onside_positions(
         # If last defender is between the passer and reciever then it's offside, so continue
         if target_position_x + th > last_defender_x and passer_x < last_defender_x:
             continue
+
+        onside_positions.append(target_position)
 
     return onside_positions
 
@@ -273,7 +277,6 @@ def default_model_params(time_to_control_veto=3):
         * np.log(10)
         * (np.sqrt(3) * params["tti_sigma"] / np.pi + 1 / params["lambda_def"])
     )
-    print(params)
     return params
 
 
@@ -322,7 +325,6 @@ class Player(object):
 
 
 def observation_to_pitch_control_reward(obs):
-
     # Getting positions and directions of players and ball
     left_team_positions = np.array(obs["left_team"]).reshape((-1, 2))
 
@@ -347,8 +349,9 @@ def observation_to_pitch_control_reward(obs):
 
     # Further pre processing to work with the pitch control model
     def to_metric_space(positions):
-        positions[:, 0] -= 0.5
-        positions[:, 1] = 1 - positions[:, 1] - 0.5
+        positions = np.array(positions)
+        positions[::2] -= 0.5
+        positions[1::2] = 1 - positions[1::2] - 0.5
         return positions
 
     normalized_left_team_positions = to_metric_space(normalized_left_team_positions)

@@ -30,6 +30,8 @@ def _process_reward_wrappers(env, rewards):
         env = wrappers.CheckpointRewardWrapper(env)
     if "custom" in rewards.split(","):
         env = wrappers.CustomRewardWrapper(env)
+    else:
+        env = wrappers.DebugWrapper(env)
     return env
 
 
