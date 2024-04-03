@@ -37,7 +37,7 @@ def create_single_football_env(iprocess=0, custom_rewards=False):
     return env
 
 
-def train(gamma, lr, buffer_size, num_timesteps, save_interval, num_envs):
+def train(gamma, lr, buffer_size, num_timesteps, save_interval, batch_size):
     """Trains a DQN."""
 
     args = parser.parse_args()
@@ -82,6 +82,8 @@ def train(gamma, lr, buffer_size, num_timesteps, save_interval, num_envs):
         total_timesteps=num_timesteps,
         log_interval=1,
         callback=verbose_callback,
+        save_interval=save_interval,
+        batch_size=batch_size,
     )
 
     # Save the trained model
@@ -104,6 +106,9 @@ if __name__ == "__main__":
     lr = 0.00011879
     buffer_size = 50000
     num_timesteps = 25_000_000
+    batch_size = 512
+    target_update_interval = 2500
     save_interval = 25_000_000
-    num_envs = 8
-    train(gamma, lr, buffer_size, num_timesteps, save_interval, num_envs)
+    train(
+        gamma, lr, buffer_size, num_timesteps, save_interval, save_interval, batch_size
+    )
