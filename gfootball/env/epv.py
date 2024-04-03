@@ -3,6 +3,7 @@ from typing import Tuple
 from gfootball.env import expected_goals as xG
 import numpy as np
 from math import floor
+import os
 
 
 def get_epv_for_ball_position(ball_position: Tuple[float, float]) -> float:
