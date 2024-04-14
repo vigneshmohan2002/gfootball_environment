@@ -33,3 +33,4 @@ cmake_install.cmake
 # IDE
 .idea
 .vs*
+gfootball/notebooks/model_training_data/train.csv
