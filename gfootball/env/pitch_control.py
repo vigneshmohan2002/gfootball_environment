@@ -249,7 +249,7 @@ def default_model_params(time_to_control_veto=3):
         0.45  # Standard deviation of sigmoid function in Spearman 2018 ('s') that determines uncertainty in player arrival time
     )
     params["kappa_def"] = (
-        1.0  # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that home & away players have same ball control probability
+        1.0  # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that all players have same ball control probability
     )
     params["lambda_att"] = 4.3  # ball control parameter for attacking team
     params["lambda_def"] = (
@@ -365,7 +365,7 @@ def observation_to_pitch_control_reward(obs):
     params = default_model_params()
 
     # In a real-world scenario we consider velocity of the players and the ball
-    # However for the sake of similicty and due to the realism lost in the environment, the effect of velocity in the model is negligible
+    # However for the sake of simplicty and due to the realism lost in the environment, the effect of velocity in the model is negligible
     left_team_players = []
     right_team_players = []
     for idx, p in enumerate(normalized_left_team_positions):
